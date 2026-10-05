@@ -1,0 +1,19 @@
+
+name: connectivity-test
+on: workflow_dispatch
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check sites from GitHub servers
+        run: |
+          for u in \
+            https://utmn.modeus.org \
+            https://auth.modeus.org \
+            https://oao-tts.ru/ttsfind/ \
+            https://api.telegram.org \
+            http://rzhunemogu.ru/RandJSON.aspx?CType=1; do
+            code=$(curl -s -o /dev/null -m 20 -w "%{http_code}" -A "Mozilla/5.0" "$u")
+            echo "$u -> HTTP $code"
+          done
