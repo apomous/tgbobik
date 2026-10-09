@@ -1,0 +1,55 @@
+name: joke
+on:
+  schedule:
+    - cron: "50 6 * * *"   # 11:50 по Тюмени (UTC+5); скрипт дожидается 12:00
+    - cron: "10 7 * * *"   # запасной, 12:10
+    - cron: "40 7 * * *"   # запасной, 12:40
+    # Те же запуски, сдвинутые на 7 часов раньше: GitHub сейчас опаздывает на ~7 ч
+    - cron: "55 23 * * *"
+    - cron: "20 0 * * *"
+    - cron: "50 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: joke
+  cancel-in-progress: false
+
+jobs:
+  joke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Already sent today?
+        id: chk
+        run: |
+          today=$(TZ=Asia/Yekaterinburg date +%F)
+          now=$(TZ=Asia/Yekaterinburg date +%H%M)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$((10#$now))" -lt 1130 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Слишком рано ($now по Тюмени), пропускаю"
+          elif [ "${{ github.event_name }}" = "schedule" ] && [ -f joke_sent.txt ] && [ "$(cat joke_sent.txt)" = "$today" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Сегодня уже отправлено, пропускаю"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.chk.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+        if: steps.chk.outputs.skip != 'true'
+      - run: python job.py joke
+        if: steps.chk.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+      - name: Save joke history
+        if: steps.chk.outputs.skip != 'true'
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add jokes_state.json joke_sent.txt || true
+          git diff --cached --quiet || (git commit -m "joke history" && git pull --rebase && git push)

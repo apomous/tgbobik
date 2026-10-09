@@ -1,0 +1,80 @@
+name: morning
+on:
+  schedule:
+    - cron: "50 2 * * *"   # 07:50 по Тюмени (UTC+5); скрипт дожидается 08:00
+    - cron: "10 3 * * *"   # запасной, 08:10
+    - cron: "40 3 * * *"   # запасной, 08:40
+    # Те же запуски, сдвинутые на 7 часов раньше: GitHub сейчас опаздывает на ~7 ч
+    - cron: "0 20 * * *"
+    - cron: "30 20 * * *"
+    - cron: "0 21 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: morning
+  cancel-in-progress: false
+
+jobs:
+  morning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Already sent today?
+        id: chk
+        run: |
+          today=$(TZ=Asia/Yekaterinburg date +%F)
+          now=$(TZ=Asia/Yekaterinburg date +%H%M)
+          if [ "${{ github.event_name }}" = "schedule" ] && [ "$((10#$now))" -lt 730 ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Слишком рано ($now по Тюмени), пропускаю"
+          elif [ "${{ github.event_name }}" = "schedule" ] && [ -f morning_sent.txt ] && [ "$(cat morning_sent.txt)" = "$today" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Сегодня уже отправлено, пропускаю"
+          fi
+      - uses: actions/setup-python@v5
+        if: steps.chk.outputs.skip != 'true'
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+        if: steps.chk.outputs.skip != 'true'
+      - uses: actions/cache@v4
+        if: steps.chk.outputs.skip != 'true'
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-v1
+      - run: playwright install --with-deps chromium
+        if: steps.chk.outputs.skip != 'true'
+      - name: Restore Modeus session
+        if: steps.chk.outputs.skip != 'true'
+        uses: actions/cache@v4
+        with:
+          path: modeus_state.json
+          key: modeus-state-${{ github.run_id }}
+          restore-keys: modeus-state-
+      - run: python job.py morning
+        if: steps.chk.outputs.skip != 'true'
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          CARD_NUMBER: ${{ secrets.CARD_NUMBER }}
+          MODEUS_LOGIN: ${{ secrets.MODEUS_LOGIN }}
+          MODEUS_PASSWORD: ${{ secrets.MODEUS_PASSWORD }}
+          TTS_COOKIE: ${{ secrets.TTS_COOKIE }}
+      - name: Remember sent
+        if: steps.chk.outputs.skip != 'true'
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add morning_sent.txt || true
+          git diff --cached --quiet || (git commit -m "morning sent" && git pull --rebase && git push)
+      - name: Save screenshot on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: modeus-fail
+          path: modeus_fail.png
+          if-no-files-found: ignore
