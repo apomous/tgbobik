@@ -1,7 +1,7 @@
 name: joke
 on:
   schedule:
-    - cron: "50 6 * * *"   # 11:50 по Тюмени (UTC+5); скрипт дожидается 12:00
+    - cron: "*/10 * * * *"   # 11:50 по Тюмени (UTC+5); скрипт дожидается 12:00
   workflow_dispatch:
 
 permissions:
